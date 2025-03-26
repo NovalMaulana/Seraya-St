@@ -1,11 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import Navbar from './components/Navbar';
 import md5 from 'md5';
-import {  DndContext,  closestCenter,  PointerSensor,  useSensor,  useSensors,} from '@dnd-kit/core';
-import {  arrayMove,  SortableContext,  useSortable,  verticalListSortingStrategy,} from '@dnd-kit/sortable';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import ReactCrop from 'react-image-crop'; // Impor ReactCrop
-import 'react-image-crop/dist/ReactCrop.css'; // Impor CSS untuk ReactCrop
+import ReactCrop from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
 import { Send, Image, Mic, FileText, Trash2, Edit2, X, CropIcon, Search, Clock } from 'lucide-react';
 
 // Komponen SortableDraft
@@ -118,25 +118,22 @@ function App() {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState('');
-  const [isSendConfirmOpen, setIsSendConfirmOpen] = useState(false); // State baru untuk modal konfirmasi
+  const [isSendConfirmOpen, setIsSendConfirmOpen] = useState(false);
   const [sentDraftIds, setSentDraftIds] = useState(() => {
     const savedIds = localStorage.getItem('sentDraftIds');
     return savedIds ? JSON.parse(savedIds) : {};
   });
   const [isSending, setIsSending] = useState(false);
   const [sendDelay, setSendDelay] = useState(5);
-  const [sendProgress, setSendProgress] = useState({ sent: 0, total: 0 }); // State untuk progress
+  const [sendProgress, setSendProgress] = useState({ sent: 0, total: 0 });
   const [crop, setCrop] = useState({ unit: '%', x: 25, y: 25, width: 50, height: 50 });
   const [completedCrop, setCompletedCrop] = useState(null);
   const imgRef = useRef(null);
-
-  // State untuk OCR
   const [uploadedImage, setUploadedImage] = useState(null);
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [currentApiKeyIndex, setCurrentApiKeyIndex] = useState(0);
   const fileInputRef = useRef(null);
 
-  // Daftar API Key OCRSpace (ganti dengan API Key Anda)
   const ocrApiKeys = [
     'K86594910588957',
     'K82987667488957',
@@ -266,7 +263,7 @@ function App() {
     for (let i = 0; i < binary.length; i++) {
       array.push(binary.charCodeAt(i));
     }
-    return new Blob([new Uint8Array(array)], { type: mime });
+    return new Blob([new Uint8Array(array)], { type: 'image/png' }); // Pastikan type adalah PNG
   };
 
   const handleDragEnter = useCallback((e) => {
@@ -289,49 +286,96 @@ function App() {
     }
   }, []);
 
-  // Fungsi handleDrop untuk upload gambar tetap PNG
-  const handleDrop = async (event) => {
-    event.preventDefault();
-    setIsDraggingOver(false);
+// Fungsi untuk menambahkan watermark subtle
+const addWatermark = (imageDataURL) => {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const img = new window.Image(); // Gunakan window.Image untuk memastikan kompatibilitas
+    img.src = imageDataURL;
 
-    const files = Array.from(event.dataTransfer.files);
-    const newDrafts = await Promise.all(
-      files.map(async (file) => {
-        const fileType = file.type;
-        let messageContent;
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
 
-        if (fileType.startsWith('image/')) {
-          const reader = new FileReader();
-          messageContent = await new Promise((resolve) => {
-            reader.onload = () => resolve(reader.result); // Data URL tetap dalam format asli (PNG)
-            reader.readAsDataURL(file);
-          });
+      // Pengaturan watermark subtle
+      ctx.globalAlpha = 0.02; // Transparansi sangat rendah
+      ctx.font = "16px Arial"; // Ukuran font kecil
+      ctx.fillStyle = "gray"; // Warna abu-abu yang tidak mencolok
+      ctx.textAlign = "center";
+
+      const watermarkText = "© Private Message JKT48"; // Ganti dengan nama Anda
+
+      for (let y = 30; y < img.height; y += 100) {
+        for (let x = 30; x < img.width; x += 150) {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(Math.PI / 4); // Rotasi 45 derajat
+          ctx.fillText(watermarkText, 0, 0);
+          ctx.restore();
+        }
+      }
+
+      resolve(canvas.toDataURL("image/png"));
+    };
+
+    img.onerror = (error) => {
+      reject(new Error("Failed to load image: " + error.message));
+    };
+  });
+};
+
+// Fungsi handleDrop yang dimodifikasi untuk menambahkan watermark
+const handleDrop = async (event) => {
+  event.preventDefault();
+  setIsDraggingOver(false);
+
+  const files = Array.from(event.dataTransfer.files);
+  const newDrafts = await Promise.all(
+    files.map(async (file) => {
+      const fileType = file.type;
+      let messageContent;
+
+      if (fileType.startsWith('image/')) {
+        const reader = new FileReader();
+        const imageDataURL = await new Promise((resolve) => {
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(file);
+        });
+        try {
+          // Tambahkan watermark pada gambar
+          messageContent = await addWatermark(imageDataURL);
           return {
             id: md5(`${file.name}${Date.now()}`),
             webhookName: selectedWebhookName,
             message: messageContent,
             type: 'image',
           };
-        } else if (fileType.startsWith('audio/')) {
-          const reader = new FileReader();
-          messageContent = await new Promise((resolve) => {
-            reader.onload = () => resolve(reader.result);
-            reader.readAsDataURL(file);
-          });
-          return {
-            id: md5(`${file.name}${Date.now()}`),
-            webhookName: selectedWebhookName,
-            message: messageContent,
-            type: 'audio',
-          };
+        } catch (error) {
+          console.error("Error adding watermark:", error);
+          return null; // Skip draft jika gagal
         }
-        return null;
-      })
-    );
+      } else if (fileType.startsWith('audio/')) {
+        const reader = new FileReader();
+        messageContent = await new Promise((resolve) => {
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(file);
+        });
+        return {
+          id: md5(`${file.name}${Date.now()}`),
+          webhookName: selectedWebhookName,
+          message: messageContent,
+          type: 'audio',
+        };
+      }
+      return null;
+    })
+  );
 
-    const validDrafts = newDrafts.filter((draft) => draft !== null);
-    setDrafts((prevDrafts) => [...prevDrafts, ...validDrafts]);
-  };
+  const validDrafts = newDrafts.filter((draft) => draft !== null);
+  setDrafts((prevDrafts) => [...prevDrafts, ...validDrafts]);
+};
 
   const handleWebhookSelect = (url, name) => {
     setSelectedWebhookUrl(url);
@@ -400,8 +444,12 @@ function App() {
   };
 
   const handleSendClick = () => {
-    if (!drafts.length || isSending) {
-      if (!isSending) alert('No drafts to send');
+    if (!drafts.length || isSending || !selectedWebhookUrl) {
+      if (!isSending && !selectedWebhookUrl) {
+        alert('Please select a webhook before sending drafts.');
+      } else if (!isSending && drafts.length === 0) {
+        alert('No drafts to send');
+      }
       return;
     }
     setIsSendConfirmOpen(true);
@@ -423,7 +471,7 @@ function App() {
 
   const sendDraftWithRetry = async (draft, webhookUrl, retries = 3, delay = 1000) => {
     const formData = new FormData();
-  
+
     if (draft.type === 'text') {
       // Format timestamp WIB (UTC+7)
       const now = new Date();
@@ -439,7 +487,7 @@ function App() {
         hour12: true,
         timeZone: 'UTC',
       });
-  
+
       // Buat payload untuk embed (khusus teks)
       const payload = {
         embeds: [
@@ -452,18 +500,18 @@ function App() {
           },
         ],
       };
-  
+
       // Tambahkan payload sebagai JSON ke FormData
       formData.append('payload_json', JSON.stringify(payload));
     } else if (draft.type === 'image' || draft.type === 'audio') {
       // Untuk gambar dan audio, kirim sebagai file biasa
       const blob = dataURLtoBlob(draft.message);
       const fileHash = md5(draft.message);
-      const fileExtension = draft.type === 'image' ? 'jpg' : 'mp3';
+      const fileExtension = draft.type === 'image' ? 'png' : 'mp3'; // Ubah ke PNG untuk gambar
       const newFileName = `${fileHash}.${fileExtension}`;
       formData.append('file', blob, newFileName);
     }
-  
+
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         const response = await fetch(webhookUrl, {
@@ -846,17 +894,23 @@ function App() {
       <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 z-40 flex flex-col items-center space-y-2">
         <button
           onClick={handleSendClick}
-          disabled={drafts.length === 0 || isSending}
+          disabled={drafts.length === 0 || isSending || !selectedWebhookUrl} // Tambahkan !selectedWebhookUrl
           className={`bg-[#10B981] text-white px-8 py-3 rounded-full font-medium transition-all duration-300 shadow-sm inline-flex items-center space-x-2 ${
-            drafts.length === 0 || isSending 
+            drafts.length === 0 || isSending || !selectedWebhookUrl
               ? 'opacity-50 cursor-not-allowed bg-gray-400'
               : 'hover:bg-[#059669] hover:shadow-md active:transform active:scale-95'
           }`}
         >
           <Send size={20} className="stroke-2" />
           <span>
-            {isSending ? 'Sending...' : drafts.length === 0 ? 'No Drafts' : 'Send'}
-            {drafts.length > 0 && !isSending && ` (${drafts.length})`}
+            {isSending
+              ? 'Sending...'
+              : drafts.length === 0
+              ? 'No Drafts'
+              : !selectedWebhookUrl
+              ? 'Select Webhook'
+              : 'Send'}
+            {drafts.length > 0 && !isSending && selectedWebhookUrl && ` (${drafts.length})`}
           </span>
         </button>
         {isSending && (
