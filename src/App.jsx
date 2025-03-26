@@ -300,12 +300,12 @@ const addWatermark = (imageDataURL) => {
       ctx.drawImage(img, 0, 0);
 
       // Pengaturan watermark subtle
-      ctx.globalAlpha = 0.02; // Transparansi sangat rendah
-      ctx.font = "16px Arial"; // Ukuran font kecil
+      ctx.globalAlpha = 0.01; // Transparansi sangat rendah
+      ctx.font = "11px Arial"; // Ukuran font kecil
       ctx.fillStyle = "gray"; // Warna abu-abu yang tidak mencolok
       ctx.textAlign = "center";
 
-      const watermarkText = "© Private Message JKT48"; // Ganti dengan nama Anda
+      const watermarkText = "© Private Message JKT48 © Private Message JKT48 © Private Message JKT48"; // Ganti dengan nama Anda
 
       for (let y = 30; y < img.height; y += 100) {
         for (let x = 30; x < img.width; x += 150) {
