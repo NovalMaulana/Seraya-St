@@ -539,61 +539,61 @@ const handleDrop = async (event) => {
     setSendProgress({ sent: 0, total: draftsToSend.length });
     try {
       const newSentIds = { ...sentDraftIds };
-      const sendSummary = {};
-
+  
       if (draftsToSend.length === 0) {
         alert('All drafts have already been sent.');
         setDrafts([]);
         setIsSending(false);
         return;
       }
-
+  
       const draftsByWebhook = draftsToSend.reduce((acc, draft) => {
         if (!acc[draft.webhookName]) {
           acc[draft.webhookName] = [];
-          sendSummary[draft.webhookName] = { text: 0, image: 0, audio: 0 };
         }
         acc[draft.webhookName].push(draft);
-        if (draft.type === 'text') sendSummary[draft.webhookName].text += 1;
-        else if (draft.type === 'image') sendSummary[draft.webhookName].image += 1;
-        else if (draft.type === 'audio') sendSummary[draft.webhookName].audio += 1;
         return acc;
       }, {});
-
+  
       for (const [webhookName, draftsForWebhook] of Object.entries(draftsByWebhook)) {
         const webhookUrl = webhookUrls[webhookName];
         if (!webhookUrl) {
           console.warn(`No URL found for webhook: ${webhookName}. Skipping...`);
           continue;
         }
-
+  
+        // Inisialisasi summary untuk webhook ini
+        const sendSummary = { text: 0, image: 0, audio: 0 };
+  
+        // Kirim semua draft untuk webhook ini
         for (const draft of draftsForWebhook) {
           const success = await sendDraftWithRetry(draft, webhookUrl);
           if (success) {
             newSentIds[draft.id] = Date.now();
             setSendProgress((prev) => ({ ...prev, sent: prev.sent + 1 }));
+            // Update summary berdasarkan tipe draft
+            if (draft.type === 'text') sendSummary.text += 1;
+            else if (draft.type === 'image') sendSummary.image += 1;
+            else if (draft.type === 'audio') sendSummary.audio += 1;
             await new Promise((resolve) => setTimeout(resolve, sendDelay * 1000));
           }
         }
-      }
-
-      setSentDraftIds(newSentIds);
-      setDrafts([]);
-
-      let logMessage = "";
-      for (const [webhookName, summary] of Object.entries(sendSummary)) {
-        const parts = [];
-        if (summary.text > 0) parts.push(`${summary.text} pesan`);
-        if (summary.image > 0) parts.push(`${summary.image} gambar`);
-        if (summary.audio > 0) parts.push(`${summary.audio} audio`);
-        if (parts.length > 0) {
-          logMessage += `[${webhookName}] mengirim ${parts.join(', ')}\n`;
+  
+        // Buat dan kirim log untuk webhook ini setelah semua draftnya selesai, kecuali untuk "Testing Website"
+        if (webhookName !== 'Testing Website') {
+          const parts = [];
+          if (sendSummary.text > 0) parts.push(`${sendSummary.text} pesan`);
+          if (sendSummary.image > 0) parts.push(`${sendSummary.image} gambar`);
+          if (sendSummary.audio > 0) parts.push(`${sendSummary.audio} audio`);
+          if (parts.length > 0) {
+            const logMessage = `[${webhookName}] mengirim ${parts.join(', ')}`;
+            await sendLogToWebhook(logMessage);
+          }
         }
       }
-
-      if (logMessage) {
-        await sendLogToWebhook(logMessage.trim());
-      }
+  
+      setSentDraftIds(newSentIds);
+      setDrafts([]);
     } catch (error) {
       console.error('Error sending messages:', error);
       const errorLog = "Ada yang nyasar, cek konsol ya!";
