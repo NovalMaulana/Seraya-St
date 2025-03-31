@@ -133,6 +133,9 @@ function App() {
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [currentApiKeyIndex, setCurrentApiKeyIndex] = useState(0);
   const fileInputRef = useRef(null);
+  const [isUpscaleModalOpen, setIsUpscaleModalOpen] = useState(false);
+  const [pendingImages, setPendingImages] = useState([]); // Ubah dari pendingImage ke pendingImages untuk multi file
+  const [upscaleFactor, setUpscaleFactor] = useState(2);
 
   const ocrApiKeys = [
     'K86594910588957',
@@ -326,39 +329,144 @@ const addWatermark = (imageDataURL) => {
   });
 };
 
+const applySharpenFilter = (canvas, ctx, strength = 1) => {
+  const width = canvas.width;
+  const height = canvas.height;
+  
+  // Ambil data piksel
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const tempData = new Uint8ClampedArray(data); // Salinan untuk perhitungan
+
+  // Kernel sharpening sederhana
+  const sharpenKernel = [
+    0, -1 * strength, 0,
+    -1 * strength, 4 * strength + 1, -1 * strength,
+    0, -1 * strength, 0
+  ];
+
+  // Terapkan filter ke setiap piksel (kecuali tepi)
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      let r = 0, g = 0, b = 0;
+      const pixelIndex = (y * width + x) * 4;
+
+      // Terapkan kernel ke 3x3 grid sekitar piksel
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const offset = ((y + ky) * width + (x + kx)) * 4;
+          const weight = sharpenKernel[(ky + 1) * 3 + (kx + 1)];
+          r += tempData[offset] * weight;
+          g += tempData[offset + 1] * weight;
+          b += tempData[offset + 2] * weight;
+        }
+      }
+
+      // Clamp nilai ke 0-255
+      data[pixelIndex] = Math.min(Math.max(r, 0), 255);
+      data[pixelIndex + 1] = Math.min(Math.max(g, 0), 255);
+      data[pixelIndex + 2] = Math.min(Math.max(b, 0), 255);
+    }
+  }
+
+  // Simpan kembali data yang sudah di-sharpen
+  ctx.putImageData(imageData, 0, 0);
+};
+
+const upscaleImage = async (imageDataURL, factor) => {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.src = imageDataURL;
+
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Set ukuran canvas sesuai faktor upscale
+      canvas.width = img.width * factor;
+      canvas.height = img.height * factor;
+      
+      // Aktifkan smoothing untuk upscale awal
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
+      // Gambar gambar yang sudah di-upscale
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      // Terapkan filter sharpening
+      applySharpenFilter(canvas, ctx);
+      
+      // Tambahkan watermark pada hasil akhir
+      addWatermark(canvas.toDataURL('image/png'))
+        .then((watermarkedImage) => resolve(watermarkedImage))
+        .catch((error) => reject(error));
+    };
+
+    img.onerror = (error) => reject(error);
+  });
+};
+
+const handleUpscaleConfirm = async () => {
+  if (pendingImages.length > 0) {
+    const upscalePromises = pendingImages.map(async (imageData) => {
+      try {
+        const upscaledImage = await upscaleImage(imageData.dataURL, upscaleFactor);
+        return {
+          id: md5(`${imageData.originalFile.name}${Date.now()}`),
+          webhookName: selectedWebhookName,
+          message: upscaledImage,
+          type: 'image',
+        };
+      } catch (error) {
+        console.error(`Error upscaling image ${imageData.originalFile.name}:`, error);
+        return null;
+      }
+    });
+
+    const newDrafts = await Promise.all(upscalePromises);
+    const validDrafts = newDrafts.filter(draft => draft !== null);
+    
+    setDrafts((prevDrafts) => [...prevDrafts, ...validDrafts]);
+  }
+  
+  setIsUpscaleModalOpen(false);
+  setPendingImages([]);
+  setUpscaleFactor(2);
+};
+
 // Fungsi handleDrop yang dimodifikasi untuk menambahkan watermark
 const handleDrop = async (event) => {
   event.preventDefault();
   setIsDraggingOver(false);
 
   const files = Array.from(event.dataTransfer.files);
-  const newDrafts = await Promise.all(
-    files.map(async (file) => {
-      const fileType = file.type;
-      let messageContent;
+  const imageFiles = files.filter(file => file.type.startsWith('image/'));
 
-      if (fileType.startsWith('image/')) {
+  if (imageFiles.length > 0) {
+    const imagePromises = imageFiles.map(file => {
+      return new Promise((resolve) => {
         const reader = new FileReader();
-        const imageDataURL = await new Promise((resolve) => {
-          reader.onload = () => resolve(reader.result);
-          reader.readAsDataURL(file);
+        reader.onload = () => resolve({
+          dataURL: reader.result,
+          originalFile: file
         });
-        try {
-          // Tambahkan watermark pada gambar
-          messageContent = await addWatermark(imageDataURL);
-          return {
-            id: md5(`${file.name}${Date.now()}`),
-            webhookName: selectedWebhookName,
-            message: messageContent,
-            type: 'image',
-          };
-        } catch (error) {
-          console.error("Error adding watermark:", error);
-          return null; // Skip draft jika gagal
-        }
-      } else if (fileType.startsWith('audio/')) {
+        reader.readAsDataURL(file);
+      });
+    });
+
+    const imageData = await Promise.all(imagePromises);
+    
+    // Simpan semua gambar ke state dan buka modal
+    setPendingImages(imageData);
+    setIsUpscaleModalOpen(true);
+  }
+
+  // Handle non-image files (audio) seperti sebelumnya
+  const nonImageDrafts = await Promise.all(
+    files.filter(file => !file.type.startsWith('image/')).map(async (file) => {
+      if (file.type.startsWith('audio/')) {
         const reader = new FileReader();
-        messageContent = await new Promise((resolve) => {
+        const messageContent = await new Promise((resolve) => {
           reader.onload = () => resolve(reader.result);
           reader.readAsDataURL(file);
         });
@@ -373,8 +481,10 @@ const handleDrop = async (event) => {
     })
   );
 
-  const validDrafts = newDrafts.filter((draft) => draft !== null);
-  setDrafts((prevDrafts) => [...prevDrafts, ...validDrafts]);
+  const validNonImageDrafts = nonImageDrafts.filter(draft => draft !== null);
+  if (validNonImageDrafts.length > 0) {
+    setDrafts((prevDrafts) => [...prevDrafts, ...validNonImageDrafts]);
+  }
 };
 
   const handleWebhookSelect = (url, name) => {
@@ -637,40 +747,53 @@ const handleDrop = async (event) => {
     setIsPreviewOpen(false);
     setPreviewImage('');
     setCompletedCrop(null);
+    setCrop({ unit: '%', x: 25, y: 25, width: 50, height: 50 }); // Reset crop
   };
 
   // Fungsi getCroppedImage untuk crop tanpa kompresi (PNG)
-  const getCroppedImage = useCallback(async () => {
-    if (!completedCrop || !imgRef.current) return;
-
-    const image = imgRef.current;
-    const canvas = document.createElement('canvas');
-    const scaleX = image.naturalWidth / image.width;
-    const scaleY = image.naturalHeight / image.height;
-    canvas.width = completedCrop.width * scaleX;
-    canvas.height = completedCrop.height * scaleY;
-    const ctx = canvas.getContext('2d');
-
-    ctx.drawImage(
-      image,
-      completedCrop.x * scaleX,
-      completedCrop.y * scaleY,
-      completedCrop.width * scaleX,
-      completedCrop.height * scaleY,
-      0,
-      0,
-      completedCrop.width * scaleX,
-      completedCrop.height * scaleY
-    );
-
+  const getCroppedImage = useCallback(() => {
+    if (!completedCrop || !imgRef.current) return null;
+  
     return new Promise((resolve) => {
+      const image = imgRef.current;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+  
+      const scaleX = image.naturalWidth / image.width;
+      const scaleY = image.naturalHeight / image.height;
+      
+      // Set dimensi canvas sesuai crop
+      canvas.width = completedCrop.width * scaleX;
+      canvas.height = completedCrop.height * scaleY;
+  
+      // Pastikan kualitas gambar tetap baik
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+  
+      ctx.drawImage(
+        image,
+        completedCrop.x * scaleX,
+        completedCrop.y * scaleY,
+        completedCrop.width * scaleX,
+        completedCrop.height * scaleY,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+  
       canvas.toBlob(
         (blob) => {
           const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
+          reader.onloadend = () => {
+            // Tambahkan watermark pada gambar yang sudah di-crop
+            addWatermark(reader.result)
+              .then((watermarkedImage) => resolve(watermarkedImage))
+              .catch(() => resolve(reader.result)); // Fallback tanpa watermark jika gagal
+          };
           reader.readAsDataURL(blob);
         },
-        'image/png', // Ubah ke PNG tanpa kompresi
+        'image/png',
         1 // Kualitas maksimum
       );
     });
@@ -682,7 +805,11 @@ const handleDrop = async (event) => {
       const draftIndex = drafts.findIndex((draft) => draft.message === previewImage);
       if (draftIndex !== -1) {
         const updatedDrafts = [...drafts];
-        updatedDrafts[draftIndex] = { ...updatedDrafts[draftIndex], message: croppedImage };
+        updatedDrafts[draftIndex] = { 
+          ...updatedDrafts[draftIndex], 
+          message: croppedImage,
+          type: 'image' // Pastikan tipe tetap image
+        };
         setDrafts(updatedDrafts);
       }
       closePreviewModal();
@@ -929,6 +1056,64 @@ const handleDrop = async (event) => {
         )}
       </div>
 
+      {
+        isUpscaleModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Upscale Images</h2>
+              <p className="text-gray-600 mb-4">
+                {pendingImages.length} image(s) detected. Pilih faktor upscale untuk meningkatkan resolusi semua gambar:
+              </p>
+              
+              <div className="grid grid-cols-2 gap-4 mb-4 max-h-[40vh] overflow-y-auto">
+                {pendingImages.map((imageData, index) => (
+                  <div key={index} className="flex flex-col items-center">
+                    <img
+                      src={imageData.dataURL}
+                      alt={`Preview ${index + 1}`}
+                      className="max-h-32 w-full object-contain rounded-lg"
+                    />
+                    <p className="text-sm text-gray-600 mt-2 truncate w-full text-center">
+                      {imageData.originalFile.name}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="mb-4">
+                <select
+                  value={upscaleFactor}
+                  onChange={(e) => setUpscaleFactor(parseInt(e.target.value))}
+                  className="w-full p-2 border border-gray-300 rounded-lg"
+                >
+                  <option value={2}>2x (Double Resolution)</option>
+                  <option value={4}>4x (Quadruple Resolution)</option>
+                </select>
+              </div>
+              
+              <div className="flex justify-end space-x-2">
+                <button
+                  onClick={() => {
+                    setIsUpscaleModalOpen(false);
+                    setPendingImages([]);
+                    setUpscaleFactor(2);
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpscaleConfirm}
+                  className="bg-[#6366F1] hover:bg-[#4F46E5] text-white px-4 py-2 rounded-lg transition-all duration-300"
+                >
+                  Upscale & Save All
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
       {isSendConfirmOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
@@ -1060,47 +1245,69 @@ const handleDrop = async (event) => {
         </div>
       )}
 
-      {isPreviewOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-          <div className="relative bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full">
-            <button
-              onClick={closePreviewModal}
-              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 transition-colors duration-300"
-            >
-              <X size={24} />
-            </button>
-            <div className="flex flex-col items-center">
-              <ReactCrop crop={crop} onChange={(_, percentCrop) => setCrop(percentCrop)} onComplete={(c) => setCompletedCrop(c)}>
-                <img
-                  ref={imgRef}
-                  src={previewImage}
-                  alt="Preview"
-                  className="max-h-[70vh] object-contain rounded-lg"
-                  onLoad={() => setCompletedCrop(null)}
-                />
-              </ReactCrop>
-              <div className="mt-6 flex space-x-4">
-                <button
-                  onClick={closePreviewModal}
-                  className="px-6 py-2 text-gray-600 hover:text-gray-800 border border-gray-300 rounded-lg transition-colors duration-300"
-                >
-                  Close
-                </button>
-                <button
-                  onClick={handleSaveCrop}
-                  disabled={!completedCrop}
-                  className={`px-6 py-2 text-white rounded-lg transition-all duration-300 inline-flex items-center space-x-2 ${
-                    completedCrop ? 'bg-[#6366F1] hover:bg-[#4F46E5]' : 'bg-[#E5E7EB] cursor-not-allowed'
-                  }`}
-                >
-                  <CropIcon size={20} />
-                  <span>Crop Image</span>
-                </button>
+      {
+        isPreviewOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+            <div className="relative bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+              <button
+                onClick={closePreviewModal}
+                className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 transition-colors duration-300 z-10"
+              >
+                <X size={24} />
+              </button>
+              
+              <div className="flex flex-col items-center">
+                <h2 className="text-xl font-bold text-gray-900 mb-4">Crop Image</h2>
+                
+                <div className="relative max-h-[70vh] w-full flex justify-center">
+                  <ReactCrop
+                    crop={crop}
+                    onChange={(_, percentCrop) => setCrop(percentCrop)}
+                    onComplete={(c) => setCompletedCrop(c)}
+                    aspect={undefined} // Biarkan pengguna crop bebas, atau set nilai seperti 1 untuk rasio persegi
+                    className="max-h-[70vh]"
+                  >
+                    <img
+                      ref={imgRef}
+                      src={previewImage}
+                      alt="Image to crop"
+                      className="max-h-[70vh] w-auto object-contain rounded-lg"
+                      onLoad={() => {
+                        setCompletedCrop(null); // Reset completedCrop saat gambar baru dimuat
+                      }}
+                      onError={() => {
+                        console.error('Failed to load image for cropping');
+                        closePreviewModal();
+                      }}
+                    />
+                  </ReactCrop>
+                </div>
+
+                <div className="mt-6 flex space-x-4">
+                  <button
+                    onClick={closePreviewModal}
+                    className="px-6 py-2 text-gray-600 hover:text-gray-800 border border-gray-300 rounded-lg transition-colors duration-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveCrop}
+                    disabled={!completedCrop}
+                    className={`px-6 py-2 text-white rounded-lg transition-all duration-300 inline-flex items-center space-x-2 ${
+                      completedCrop 
+                        ? 'bg-[#6366F1] hover:bg-[#4F46E5]' 
+                        : 'bg-[#E5E7EB] cursor-not-allowed'
+                    }`}
+                  >
+                    <CropIcon size={20} />
+                    <span>Save Crop</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
     </div>
   );
 }
