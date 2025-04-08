@@ -1357,32 +1357,32 @@ function App() {
       {
         isPreviewOpen && (
           <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-            <div className="relative bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="relative bg-[#1F2937] p-6 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
               <button
                 onClick={closePreviewModal}
-                className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 transition-colors duration-300 z-10"
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-200 transition-colors duration-300 z-10"
               >
                 <X size={24} />
               </button>
               
               <div className="flex flex-col items-center">
-                <h2 className="text-xl font-bold text-gray-900 mb-4">Crop Image</h2>
+                <h2 className="text-xl font-bold text-gray-200 mb-4">Crop Image</h2>
                 
                 <div className="relative max-h-[70vh] w-full flex justify-center">
                   <ReactCrop
                     crop={crop}
                     onChange={(_, percentCrop) => setCrop(percentCrop)}
                     onComplete={(c) => setCompletedCrop(c)}
-                    aspect={undefined} // Biarkan pengguna crop bebas, atau set nilai seperti 1 untuk rasio persegi
+                    aspect={undefined}
                     className="max-h-[70vh]"
                   >
                     <img
                       ref={imgRef}
                       src={previewImage}
                       alt="Image to crop"
-                      className="max-h-[70vh] w-auto object-contain rounded-lg"
+                      className="max-h-[70vh] w-auto object-contain"
                       onLoad={() => {
-                        setCompletedCrop(null); // Reset completedCrop saat gambar baru dimuat
+                        setCompletedCrop(null);
                       }}
                       onError={() => {
                         console.error('Failed to load image for cropping');
@@ -1395,7 +1395,7 @@ function App() {
                 <div className="mt-6 flex space-x-4">
                   <button
                     onClick={closePreviewModal}
-                    className="px-6 py-2 text-gray-600 hover:text-gray-800 border border-gray-300 rounded-lg transition-colors duration-300"
+                    className="px-6 py-2 text-gray-300 hover:text-gray-100 border border-gray-600 hover:border-gray-500 rounded-lg transition-colors duration-300"
                   >
                     Cancel
                   </button>
@@ -1405,7 +1405,7 @@ function App() {
                     className={`px-6 py-2 text-white rounded-lg transition-all duration-300 inline-flex items-center space-x-2 ${
                       completedCrop 
                         ? 'bg-[#6366F1] hover:bg-[#4F46E5]' 
-                        : 'bg-[#E5E7EB] cursor-not-allowed'
+                        : 'bg-[#374151] cursor-not-allowed'
                     }`}
                   >
                     <CropIcon size={20} />
