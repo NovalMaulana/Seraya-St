@@ -24,7 +24,7 @@ const SortableDraft = ({ draft, index, globalIndex, handleEditDraft, handleDelet
     transition,
     opacity: isDragging ? 0.5 : 1,
     cursor: 'grab',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#1F2937',
   };
 
   // Tambahkan fungsi handleImageClick yang terpisah
@@ -39,25 +39,25 @@ const SortableDraft = ({ draft, index, globalIndex, handleEditDraft, handleDelet
       style={style}
       {...attributes}
       {...listeners}
-      className="p-4 rounded-xl border border-[#E5E7EB] flex flex-col h-full hover:border-[#6366F1] transition-colors duration-300"
+      className="p-4 rounded-xl border border-[#374151] flex flex-col h-full hover:border-[#6366F1] transition-colors duration-300"
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-2">
-          <span className="text-sm font-medium text-[#4B5563] bg-[#F3F4F6] px-3 py-1 rounded-full">
+          <span className="text-sm font-medium text-[#E5E7EB] bg-[#374151] px-3 py-1 rounded-full">
             Draft {index + 1}
           </span>
         </div>
         <div className="flex items-center space-x-1">
           <button
             onClick={() => handleEditDraft(globalIndex)}
-            className="p-1.5 text-[#6366F1] hover:bg-[#F3F4F6] rounded-md transition-colors duration-150"
+            className="p-1.5 text-[#6366F1] hover:bg-[#374151] rounded-md transition-colors duration-150"
             title="Edit"
           >
             <Edit2 size={16} />
           </button>
           <button
             onClick={() => handleDeleteDraft(globalIndex)}
-            className="p-1.5 text-[#EF4444] hover:bg-[#FEE2E2] rounded-md transition-colors duration-150"
+            className="p-1.5 text-[#EF4444] hover:bg-[#FEE2E2]/10 rounded-md transition-colors duration-150"
             title="Delete"
           >
             <Trash2 size={16} />
@@ -66,13 +66,13 @@ const SortableDraft = ({ draft, index, globalIndex, handleEditDraft, handleDelet
       </div>
       {draft.type === 'image' ? (
         <div className="relative group cursor-pointer" onClick={handleImageClick}>
-          <div className="absolute top-2 right-2 bg-white/80 rounded-full p-1.5 shadow-sm">
+          <div className="absolute top-2 right-2 bg-[#374151]/80 rounded-full p-1.5 shadow-sm">
             <Image size={14} className="text-[#6366F1]" />
           </div>
           <img
             src={draft.message}
             alt="Uploaded"
-            className="w-full h-48 object-contain rounded-lg bg-[#F9FAFB]"
+            className="w-full h-48 object-contain rounded-lg bg-[#111827]"
           />
           <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all duration-300 rounded-lg flex items-center justify-center">
             <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-white bg-black bg-opacity-50 px-3 py-1.5 rounded-lg text-sm flex items-center space-x-2">
@@ -83,7 +83,7 @@ const SortableDraft = ({ draft, index, globalIndex, handleEditDraft, handleDelet
         </div>
       ) : draft.type === 'audio' ? (
         <div className="relative">
-          <div className="absolute top-2 right-2 bg-white/80 rounded-full p-1.5 shadow-sm">
+          <div className="absolute top-2 right-2 bg-[#374151]/80 rounded-full p-1.5 shadow-sm">
             <Mic size={14} className="text-[#6366F1]" />
           </div>
           <audio
@@ -94,10 +94,10 @@ const SortableDraft = ({ draft, index, globalIndex, handleEditDraft, handleDelet
         </div>
       ) : (
         <div className="relative">
-          <div className="absolute top-2 right-2 bg-white/80 rounded-full p-1.5 shadow-sm">
+          <div className="absolute top-2 right-2 bg-[#374151]/80 rounded-full p-1.5 shadow-sm">
             <FileText size={14} className="text-[#6366F1]" />
           </div>
-          <p className="text-sm text-[#4B5563] bg-[#F9FAFB] p-4 rounded-lg">
+          <p className="text-sm text-[#E5E7EB] bg-[#111827] p-4 rounded-lg">
             {draft.message}
           </p>
         </div>
@@ -272,220 +272,113 @@ function App() {
   const handleDragEnter = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (!selectedWebhookUrl) {
+      alert('Silakan pilih webhook terlebih dahulu sebelum melakukan upload');
+      return;
+    }
     setIsDraggingOver(true);
-  }, []);
+  }, [selectedWebhookUrl]);
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (!selectedWebhookUrl) {
+      return;
+    }
     setIsDraggingOver(true);
-  }, []);
+  }, [selectedWebhookUrl]);
 
   const handleDragLeave = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.currentTarget === e.target) {
+    // Pastikan event berasal dari elemen yang benar-benar meninggalkan area drop
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+    
+    // Cek apakah kursor benar-benar meninggalkan area drop
+    if (
+      x <= rect.left ||
+      x >= rect.right ||
+      y <= rect.top ||
+      y >= rect.bottom
+    ) {
       setIsDraggingOver(false);
     }
   }, []);
 
-// Fungsi untuk menambahkan watermark subtle
-const addWatermark = (imageDataURL) => {
-  return new Promise((resolve, reject) => {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    const img = new window.Image(); // Gunakan window.Image untuk memastikan kompatibilitas
-    img.src = imageDataURL;
+  const handleDrop = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDraggingOver(false);
 
-    img.onload = () => {
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-
-      // Pengaturan watermark subtle
-      ctx.globalAlpha = 0.01; // Transparansi sangat rendah
-      ctx.font = "11px Arial"; // Ukuran font kecil
-      ctx.fillStyle = "gray"; // Warna abu-abu yang tidak mencolok
-      ctx.textAlign = "center";
-
-      const watermarkText = "© Private Message JKT48 © Private Message JKT48 © Private Message JKT48"; // Ganti dengan nama Anda
-
-      for (let y = 30; y < img.height; y += 100) {
-        for (let x = 30; x < img.width; x += 150) {
-          ctx.save();
-          ctx.translate(x, y);
-          ctx.rotate(Math.PI / 4); // Rotasi 45 derajat
-          ctx.fillText(watermarkText, 0, 0);
-          ctx.restore();
-        }
-      }
-
-      resolve(canvas.toDataURL("image/png"));
-    };
-
-    img.onerror = (error) => {
-      reject(new Error("Failed to load image: " + error.message));
-    };
-  });
-};
-
-const applySharpenFilter = (canvas, ctx, strength = 1) => {
-  const width = canvas.width;
-  const height = canvas.height;
-  
-  // Ambil data piksel
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-  const tempData = new Uint8ClampedArray(data); // Salinan untuk perhitungan
-
-  // Kernel sharpening sederhana
-  const sharpenKernel = [
-    0, -1 * strength, 0,
-    -1 * strength, 4 * strength + 1, -1 * strength,
-    0, -1 * strength, 0
-  ];
-
-  // Terapkan filter ke setiap piksel (kecuali tepi)
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      let r = 0, g = 0, b = 0;
-      const pixelIndex = (y * width + x) * 4;
-
-      // Terapkan kernel ke 3x3 grid sekitar piksel
-      for (let ky = -1; ky <= 1; ky++) {
-        for (let kx = -1; kx <= 1; kx++) {
-          const offset = ((y + ky) * width + (x + kx)) * 4;
-          const weight = sharpenKernel[(ky + 1) * 3 + (kx + 1)];
-          r += tempData[offset] * weight;
-          g += tempData[offset + 1] * weight;
-          b += tempData[offset + 2] * weight;
-        }
-      }
-
-      // Clamp nilai ke 0-255
-      data[pixelIndex] = Math.min(Math.max(r, 0), 255);
-      data[pixelIndex + 1] = Math.min(Math.max(g, 0), 255);
-      data[pixelIndex + 2] = Math.min(Math.max(b, 0), 255);
+    if (!selectedWebhookUrl) {
+      alert('Silakan pilih webhook terlebih dahulu sebelum melakukan upload');
+      return;
     }
-  }
 
-  // Simpan kembali data yang sudah di-sharpen
-  ctx.putImageData(imageData, 0, 0);
-};
+    const files = Array.from(event.dataTransfer.files);
+    const imageFiles = files.filter(file => file.type.startsWith('image/'));
 
-const upscaleImage = async (imageDataURL, factor) => {
-  return new Promise((resolve, reject) => {
-    const img = new window.Image();
-    img.src = imageDataURL;
-
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      // Set ukuran canvas sesuai faktor upscale
-      canvas.width = img.width * factor;
-      canvas.height = img.height * factor;
-      
-      // Aktifkan smoothing untuk upscale awal
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      
-      // Gambar gambar yang sudah di-upscale
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      
-      // Terapkan filter sharpening
-      applySharpenFilter(canvas, ctx);
-      
-      // Tambahkan watermark pada hasil akhir
-      addWatermark(canvas.toDataURL('image/png'))
-        .then((watermarkedImage) => resolve(watermarkedImage))
-        .catch((error) => reject(error));
-    };
-
-    img.onerror = (error) => reject(error);
-  });
-};
-
-const handleUpscaleConfirm = async () => {
-  if (pendingImages.length > 0) {
-    const upscalePromises = pendingImages.map(async (imageData) => {
-      try {
-        const upscaledImage = await upscaleImage(imageData.dataURL, upscaleFactor);
-        return {
-          id: md5(`${imageData.originalFile.name}${Date.now()}`),
-          webhookName: selectedWebhookName,
-          message: upscaledImage,
-          type: 'image',
-        };
-      } catch (error) {
-        console.error(`Error upscaling image ${imageData.originalFile.name}:`, error);
-        return null;
-      }
-    });
-
-    const newDrafts = await Promise.all(upscalePromises);
-    const validDrafts = newDrafts.filter(draft => draft !== null);
-    
-    setDrafts((prevDrafts) => [...prevDrafts, ...validDrafts]);
-  }
-  
-  setIsUpscaleModalOpen(false);
-  setPendingImages([]);
-  setUpscaleFactor(2);
-};
-
-// Fungsi handleDrop yang dimodifikasi untuk menambahkan watermark
-const handleDrop = async (event) => {
-  event.preventDefault();
-  setIsDraggingOver(false);
-
-  const files = Array.from(event.dataTransfer.files);
-  const imageFiles = files.filter(file => file.type.startsWith('image/'));
-
-  if (imageFiles.length > 0) {
-    const imagePromises = imageFiles.map(file => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve({
-          dataURL: reader.result,
-          originalFile: file
-        });
-        reader.readAsDataURL(file);
-      });
-    });
-
-    const imageData = await Promise.all(imagePromises);
-    
-    // Simpan semua gambar ke state dan buka modal
-    setPendingImages(imageData);
-    setIsUpscaleModalOpen(true);
-  }
-
-  // Handle non-image files (audio) seperti sebelumnya
-  const nonImageDrafts = await Promise.all(
-    files.filter(file => !file.type.startsWith('image/')).map(async (file) => {
-      if (file.type.startsWith('audio/')) {
-        const reader = new FileReader();
-        const messageContent = await new Promise((resolve) => {
-          reader.onload = () => resolve(reader.result);
+    if (imageFiles.length > 0) {
+      const imagePromises = imageFiles.map(file => {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve({
+            dataURL: reader.result,
+            originalFile: file
+          });
           reader.readAsDataURL(file);
         });
-        return {
-          id: md5(`${file.name}${Date.now()}`),
-          webhookName: selectedWebhookName,
-          message: messageContent,
-          type: 'audio',
-        };
-      }
-      return null;
-    })
-  );
+      });
 
-  const validNonImageDrafts = nonImageDrafts.filter(draft => draft !== null);
-  if (validNonImageDrafts.length > 0) {
-    setDrafts((prevDrafts) => [...prevDrafts, ...validNonImageDrafts]);
-  }
-};
+      const imageData = await Promise.all(imagePromises);
+      
+      // Simpan semua gambar ke state dan buka modal
+      setPendingImages(imageData);
+      setIsUpscaleModalOpen(true);
+    }
+
+    // Handle non-image files (audio) seperti sebelumnya
+    const nonImageDrafts = await Promise.all(
+      files.filter(file => !file.type.startsWith('image/')).map(async (file) => {
+        if (file.type.startsWith('audio/')) {
+          const reader = new FileReader();
+          const messageContent = await new Promise((resolve) => {
+            reader.onload = () => resolve(reader.result);
+            reader.readAsDataURL(file);
+          });
+          return {
+            id: md5(`${file.name}${Date.now()}`),
+            webhookName: selectedWebhookName,
+            message: messageContent,
+            type: 'audio',
+          };
+        }
+        return null;
+      })
+    );
+
+    const validNonImageDrafts = nonImageDrafts.filter(draft => draft !== null);
+    if (validNonImageDrafts.length > 0) {
+      setDrafts((prevDrafts) => [...prevDrafts, ...validNonImageDrafts]);
+    }
+  };
+
+  // Tambahkan cleanup effect untuk memastikan state direset
+  useEffect(() => {
+    const handleGlobalDragEnd = () => {
+      setIsDraggingOver(false);
+    };
+
+    document.addEventListener('dragend', handleGlobalDragEnd);
+    document.addEventListener('mouseup', handleGlobalDragEnd);
+
+    return () => {
+      document.removeEventListener('dragend', handleGlobalDragEnd);
+      document.removeEventListener('mouseup', handleGlobalDragEnd);
+    };
+  }, []);
 
   const handleWebhookSelect = (url, name) => {
     setSelectedWebhookUrl(url);
@@ -922,16 +815,232 @@ const handleDrop = async (event) => {
     };
   }, [drafts.length]); // Dependensi pada drafts.length agar efek berjalan saat jumlah draft berubah
 
+  // Fungsi untuk menambahkan watermark subtle
+  const addWatermark = (imageDataURL) => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      const img = new window.Image();
+      img.src = imageDataURL;
+
+      img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+
+        // Pengaturan watermark subtle
+        ctx.globalAlpha = 0.01;
+        ctx.font = "11px Arial";
+        ctx.fillStyle = "gray";
+        ctx.textAlign = "center";
+
+        const watermarkText = "© Private Message JKT48 © Private Message JKT48 © Private Message JKT48";
+
+        for (let y = 30; y < img.height; y += 100) {
+          for (let x = 30; x < img.width; x += 150) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(Math.PI / 4);
+            ctx.fillText(watermarkText, 0, 0);
+            ctx.restore();
+          }
+        }
+
+        resolve(canvas.toDataURL("image/png"));
+      };
+
+      img.onerror = (error) => {
+        reject(new Error("Failed to load image: " + error.message));
+      };
+    });
+  };
+
+  const applySharpenFilter = (canvas, ctx, strength = 0.3) => {
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    const tempData = new Uint8ClampedArray(data);
+
+    // Modifikasi kernel untuk hasil yang lebih halus
+    const sharpenKernel = [
+      -0.1 * strength, -0.1 * strength, -0.1 * strength,
+      -0.1 * strength, 1 + (0.8 * strength), -0.1 * strength,
+      -0.1 * strength, -0.1 * strength, -0.1 * strength
+    ];
+
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        let r = 0, g = 0, b = 0;
+        const pixelIndex = (y * width + x) * 4;
+
+        // Aplikasikan kernel dengan intensitas yang lebih rendah
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const offset = ((y + ky) * width + (x + kx)) * 4;
+            const weight = sharpenKernel[(ky + 1) * 3 + (kx + 1)];
+            r += tempData[offset] * weight;
+            g += tempData[offset + 1] * weight;
+            b += tempData[offset + 2] * weight;
+          }
+        }
+
+        // Tambahkan smoothing dengan rata-rata berbobot
+        const smoothFactor = 0.2;
+        data[pixelIndex] = Math.min(Math.max(
+          r * (1 - smoothFactor) + tempData[pixelIndex] * smoothFactor, 
+          0
+        ), 255);
+        data[pixelIndex + 1] = Math.min(Math.max(
+          g * (1 - smoothFactor) + tempData[pixelIndex + 1] * smoothFactor, 
+          0
+        ), 255);
+        data[pixelIndex + 2] = Math.min(Math.max(
+          b * (1 - smoothFactor) + tempData[pixelIndex + 2] * smoothFactor, 
+          0
+        ), 255);
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  };
+
+  const upscaleImage = async (imageDataURL, factor) => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      img.src = imageDataURL;
+
+      img.onload = () => {
+        // Buat canvas untuk proses upscaling bertahap
+        const intermediateCanvas = document.createElement('canvas');
+        const intermediateCtx = intermediateCanvas.getContext('2d');
+        const finalCanvas = document.createElement('canvas');
+        const finalCtx = finalCanvas.getContext('2d');
+
+        // Set dimensi canvas
+        const targetWidth = img.width * factor;
+        const targetHeight = img.height * factor;
+        
+        // Upscaling bertahap untuk hasil yang lebih baik
+        const steps = factor <= 2 ? 1 : 2;
+        const stepFactor = Math.pow(factor, 1/steps);
+        
+        intermediateCanvas.width = img.width;
+        intermediateCanvas.height = img.height;
+        finalCanvas.width = targetWidth;
+        finalCanvas.height = targetHeight;
+
+        // Gambar awal ke canvas intermediate
+        intermediateCtx.drawImage(img, 0, 0, img.width, img.height);
+
+        // Fungsi untuk menerapkan filter penghalusan
+        const applyImageSmoothing = (ctx) => {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+        };
+
+        // Fungsi untuk meningkatkan kontras
+        const enhanceContrast = (ctx, width, height) => {
+          const imageData = ctx.getImageData(0, 0, width, height);
+          const data = imageData.data;
+          
+          // Tingkatkan kontras dan kecerahan
+          for (let i = 0; i < data.length; i += 4) {
+            // Tingkatkan kontras
+            for (let j = 0; j < 3; j++) {
+              const value = data[i + j];
+              data[i + j] = Math.max(0, Math.min(255, 
+                128 + (value - 128) * 1.1
+              ));
+            }
+          }
+          
+          ctx.putImageData(imageData, 0, 0);
+        };
+
+        // Proses upscaling bertahap
+        let currentCanvas = intermediateCanvas;
+        let currentCtx = intermediateCtx;
+        let currentWidth = img.width;
+        let currentHeight = img.height;
+
+        for (let step = 0; step < steps; step++) {
+          const nextWidth = Math.round(currentWidth * stepFactor);
+          const nextHeight = Math.round(currentHeight * stepFactor);
+          const nextCanvas = step === steps - 1 ? finalCanvas : document.createElement('canvas');
+          const nextCtx = step === steps - 1 ? finalCtx : nextCanvas.getContext('2d');
+
+          nextCanvas.width = nextWidth;
+          nextCanvas.height = nextHeight;
+
+          // Terapkan penghalusan
+          applyImageSmoothing(nextCtx);
+
+          // Upscale dengan preservasi detail
+          nextCtx.drawImage(currentCanvas, 0, 0, nextWidth, nextHeight);
+
+          // Terapkan penajaman yang lebih halus
+          applySharpenFilter(nextCanvas, nextCtx, 0.15);
+
+          // Tingkatkan kontras
+          enhanceContrast(nextCtx, nextWidth, nextHeight);
+
+          // Persiapkan untuk langkah berikutnya
+          currentCanvas = nextCanvas;
+          currentCtx = nextCtx;
+          currentWidth = nextWidth;
+          currentHeight = nextHeight;
+        }
+
+        // Tambahkan watermark dan selesaikan
+        addWatermark(finalCanvas.toDataURL('image/png', 1.0))
+          .then((watermarkedImage) => resolve(watermarkedImage))
+          .catch((error) => reject(error));
+      };
+
+      img.onerror = (error) => reject(error);
+    });
+  };
+
+  const handleUpscaleConfirm = async () => {
+    if (pendingImages.length > 0) {
+      const upscalePromises = pendingImages.map(async (imageData) => {
+        try {
+          const upscaledImage = await upscaleImage(imageData.dataURL, upscaleFactor);
+          return {
+            id: md5(`${imageData.originalFile.name}${Date.now()}`),
+            webhookName: selectedWebhookName,
+            message: upscaledImage,
+            type: 'image',
+          };
+        } catch (error) {
+          console.error(`Error upscaling image ${imageData.originalFile.name}:`, error);
+          return null;
+        }
+      });
+
+      const newDrafts = await Promise.all(upscalePromises);
+      const validDrafts = newDrafts.filter(draft => draft !== null);
+      
+      setDrafts((prevDrafts) => [...prevDrafts, ...validDrafts]);
+    }
+    
+    setIsUpscaleModalOpen(false);
+    setPendingImages([]);
+    setUpscaleFactor(2);
+  };
+
   return (
     <div
-      className="min-h-screen bg-[#F9FAFB] relative"
+      className="min-h-screen bg-[#111827] relative"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       {isDraggingOver && (
-        <div className="fixed inset-0 bg-[#111827] bg-opacity-75 flex items-center justify-center z-50 pointer-events-none">
+        <div className="fixed inset-0 bg-[#111827] bg-opacity-90 flex items-center justify-center z-50 pointer-events-none">
           <div className="text-white text-2xl font-bold bg-[#6366F1] px-8 py-4 rounded-lg">
             Drop files here to upload to {selectedWebhookName || 'selected webhook'}
           </div>
@@ -949,8 +1058,8 @@ const handleDrop = async (event) => {
             {drafts.length === 0 ? (
               <div className="text-center py-20">
                 <div className="text-[#6366F1] text-6xl mb-4">📝</div>
-                <div className="text-[#4B5563] text-xl font-medium">No drafts yet</div>
-                <div className="text-[#6B7280] mt-2">Start by selecting a webhook and clicking "New Chat"</div>
+                <div className="text-[#E5E7EB] text-xl font-medium">No drafts yet</div>
+                <div className="text-[#9CA3AF] mt-2">Start by selecting a webhook and clicking "New Chat"</div>
               </div>
             ) : (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -961,12 +1070,12 @@ const handleDrop = async (event) => {
                   return (
                     <div
                       key={webhookName}
-                      className="bg-white p-6 rounded-xl border border-[#E5E7EB] mb-6 hover:border-[#6366F1] transition-colors duration-300"
+                      className="bg-[#1F2937] p-6 rounded-xl border border-[#374151] mb-6 hover:border-[#6366F1] transition-colors duration-300"
                     >
                       <div className="flex justify-between items-center mb-4">
                         <div className="flex items-center">
-                          <h3 className="text-lg font-semibold text-[#111827]">{webhookName}</h3>
-                          <span className="ml-3 text-sm text-[#6B7280] bg-[#F3F4F6] px-3 py-1 rounded-full">
+                          <h3 className="text-lg font-semibold text-[#E5E7EB]">{webhookName}</h3>
+                          <span className="ml-3 text-sm text-[#9CA3AF] bg-[#374151] px-3 py-1 rounded-full">
                             {draftsInGroup.length} draft{draftsInGroup.length !== 1 ? 's' : ''}
                           </span>
                         </div>
