@@ -906,6 +906,194 @@ function App() {
     ctx.putImageData(imageData, 0, 0);
   };
 
+  // Fungsi untuk mengompresi gambar jika melebihi 8MB
+  const compressImageIfNeeded = (dataURL) => {
+    return new Promise((resolve) => {
+      const img = new window.Image();
+      img.src = dataURL;
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        
+        // Cek ukuran file
+        const base64String = canvas.toDataURL('image/png');
+        const fileSize = Math.round((base64String.length - 822) * 3/4); // Ukuran dalam bytes
+        
+        if (fileSize > 8 * 1024 * 1024) { // Jika lebih dari 8MB
+          let quality = 0.9;
+          let compressedDataURL;
+          
+          // Loop untuk mengurangi kualitas sampai ukuran file di bawah 8MB
+          do {
+            compressedDataURL = canvas.toDataURL('image/jpeg', quality);
+            const compressedSize = Math.round((compressedDataURL.length - 822) * 3/4);
+            quality -= 0.1;
+            
+            if (quality <= 0.1) {
+              // Jika kualitas sudah sangat rendah tapi masih di atas 8MB,
+              // kita akan mengurangi dimensi gambar
+              const scale = Math.sqrt((8 * 1024 * 1024) / fileSize);
+              canvas.width = img.width * scale;
+              canvas.height = img.height * scale;
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              compressedDataURL = canvas.toDataURL('image/jpeg', 0.9);
+              break;
+            }
+          } while (Math.round((compressedDataURL.length - 822) * 3/4) > 8 * 1024 * 1024);
+          
+          resolve(compressedDataURL);
+        } else {
+          resolve(dataURL);
+        }
+      };
+    });
+  };
+
+  // Fungsi untuk meningkatkan resolusi dan kualitas gambar
+  const enhanceImageQuality = (canvas, ctx) => {
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    // 1. Deblur dengan teknik unsharp mask (dikurangi intensitasnya)
+    const unsharpMask = (ctx, width, height, amount = 0.8, radius = 1) => {
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
+      const tempData = new Uint8ClampedArray(data);
+      
+      // Buat kernel Gaussian
+      const kernel = [];
+      const kernelSize = radius * 2 + 1;
+      const sigma = radius / 3;
+      let sum = 0;
+      
+      for (let y = -radius; y <= radius; y++) {
+        for (let x = -radius; x <= radius; x++) {
+          const value = Math.exp(-(x * x + y * y) / (2 * sigma * sigma));
+          kernel.push(value);
+          sum += value;
+        }
+      }
+      
+      // Normalisasi kernel
+      for (let i = 0; i < kernel.length; i++) {
+        kernel[i] /= sum;
+      }
+      
+      // Aplikasikan unsharp mask dengan intensitas yang lebih rendah
+      for (let y = radius; y < height - radius; y++) {
+        for (let x = radius; x < width - radius; x++) {
+          const pixelIndex = (y * width + x) * 4;
+          
+          for (let c = 0; c < 3; c++) {
+            let blurred = 0;
+            let kernelIndex = 0;
+            
+            for (let ky = -radius; ky <= radius; ky++) {
+              for (let kx = -radius; kx <= radius; kx++) {
+                const offset = ((y + ky) * width + (x + kx)) * 4;
+                blurred += tempData[offset + c] * kernel[kernelIndex++];
+              }
+            }
+            
+            const original = tempData[pixelIndex + c];
+            const sharpened = original + amount * (original - blurred);
+            data[pixelIndex + c] = Math.max(0, Math.min(255, sharpened));
+          }
+        }
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+    };
+
+    // 2. Meningkatkan kontras lokal (dikurangi intensitasnya)
+    const enhanceLocalContrast = (ctx, width, height) => {
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
+      
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const pixelIndex = (y * width + x) * 4;
+          
+          // Hitung rata-rata nilai piksel di sekitar
+          let sum = 0;
+          let count = 0;
+          const radius = 2;
+          
+          for (let ky = -radius; ky <= radius; ky++) {
+            for (let kx = -radius; kx <= radius; kx++) {
+              const nx = x + kx;
+              const ny = y + ky;
+              
+              if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                const offset = (ny * width + nx) * 4;
+                sum += (data[offset] + data[offset + 1] + data[offset + 2]) / 3;
+                count++;
+              }
+            }
+          }
+          
+          const average = sum / count;
+          
+          // Tingkatkan kontras dengan intensitas yang lebih rendah
+          for (let c = 0; c < 3; c++) {
+            const value = data[pixelIndex + c];
+            const diff = value - average;
+            const enhanced = average + diff * 1.1; // Dikurangi dari 1.2 ke 1.1
+            data[pixelIndex + c] = Math.max(0, Math.min(255, enhanced));
+          }
+        }
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+    };
+
+    // 3. Meningkatkan ketajaman tepi (dikurangi intensitasnya)
+    const enhanceEdges = (ctx, width, height) => {
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
+      const tempData = new Uint8ClampedArray(data);
+      
+      const edgeKernel = [
+        -1, -1, -1,
+        -1,  8, -1,
+        -1, -1, -1
+      ];
+      
+      for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          const pixelIndex = (y * width + x) * 4;
+          
+          for (let c = 0; c < 3; c++) {
+            let edgeValue = 0;
+            let kernelIndex = 0;
+            
+            for (let ky = -1; ky <= 1; ky++) {
+              for (let kx = -1; kx <= 1; kx++) {
+                const offset = ((y + ky) * width + (x + kx)) * 4;
+                edgeValue += tempData[offset + c] * edgeKernel[kernelIndex++];
+              }
+            }
+            
+            const original = tempData[pixelIndex + c];
+            const enhanced = original + edgeValue * 0.1; // Dikurangi dari 0.2 ke 0.1
+            data[pixelIndex + c] = Math.max(0, Math.min(255, enhanced));
+          }
+        }
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+    };
+
+    // Terapkan semua peningkatan kualitas dengan intensitas yang lebih rendah
+    unsharpMask(ctx, width, height, 0.8, 1); // Dikurangi dari 1.5 ke 0.8
+    enhanceLocalContrast(ctx, width, height);
+    enhanceEdges(ctx, width, height);
+  };
+
   const upscaleImage = async (imageDataURL, factor) => {
     return new Promise((resolve, reject) => {
       const img = new window.Image();
@@ -934,29 +1122,13 @@ function App() {
         // Gambar awal ke canvas intermediate
         intermediateCtx.drawImage(img, 0, 0, img.width, img.height);
 
+        // Terapkan peningkatan kualitas pada gambar awal
+        enhanceImageQuality(intermediateCanvas, intermediateCtx);
+
         // Fungsi untuk menerapkan filter penghalusan
         const applyImageSmoothing = (ctx) => {
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
-        };
-
-        // Fungsi untuk meningkatkan kontras
-        const enhanceContrast = (ctx, width, height) => {
-          const imageData = ctx.getImageData(0, 0, width, height);
-          const data = imageData.data;
-          
-          // Tingkatkan kontras dan kecerahan
-          for (let i = 0; i < data.length; i += 4) {
-            // Tingkatkan kontras
-            for (let j = 0; j < 3; j++) {
-              const value = data[i + j];
-              data[i + j] = Math.max(0, Math.min(255, 
-                128 + (value - 128) * 1.1
-              ));
-            }
-          }
-          
-          ctx.putImageData(imageData, 0, 0);
         };
 
         // Proses upscaling bertahap
@@ -980,11 +1152,8 @@ function App() {
           // Upscale dengan preservasi detail
           nextCtx.drawImage(currentCanvas, 0, 0, nextWidth, nextHeight);
 
-          // Terapkan penajaman yang lebih halus
-          applySharpenFilter(nextCanvas, nextCtx, 0.15);
-
-          // Tingkatkan kontras
-          enhanceContrast(nextCtx, nextWidth, nextHeight);
+          // Terapkan peningkatan kualitas pada setiap tahap
+          enhanceImageQuality(nextCanvas, nextCtx);
 
           // Persiapkan untuk langkah berikutnya
           currentCanvas = nextCanvas;
@@ -995,7 +1164,15 @@ function App() {
 
         // Tambahkan watermark dan selesaikan
         addWatermark(finalCanvas.toDataURL('image/png', 1.0))
-          .then((watermarkedImage) => resolve(watermarkedImage))
+          .then(async (watermarkedImage) => {
+            // Jika faktor upscale adalah 4x, kompres gambar jika diperlukan
+            if (factor === 4) {
+              const compressedImage = await compressImageIfNeeded(watermarkedImage);
+              resolve(compressedImage);
+            } else {
+              resolve(watermarkedImage);
+            }
+          })
           .catch((error) => reject(error));
       };
 
