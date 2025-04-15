@@ -27,6 +27,20 @@ const SortableDraft = ({ draft, index, globalIndex, handleEditDraft, handleDelet
     backgroundColor: '#1F2937',
   };
 
+  // Tambahkan fungsi untuk menghitung ukuran file
+  const getFileSize = (dataURL) => {
+    const base64String = dataURL.split(',')[1];
+    const fileSize = Math.round((base64String.length - 822) * 3/4); // Ukuran dalam bytes
+    const isOversize = fileSize > 8 * 1024 * 1024; // Cek apakah lebih dari 8MB
+    
+    let sizeText;
+    if (fileSize < 1024) sizeText = `${fileSize} B`;
+    else if (fileSize < 1024 * 1024) sizeText = `${(fileSize / 1024).toFixed(1)} KB`;
+    else sizeText = `${(fileSize / (1024 * 1024)).toFixed(1)} MB`;
+    
+    return { size: sizeText, isOversize };
+  };
+
   // Tambahkan fungsi handleImageClick yang terpisah
   const handleImageClick = (e) => {
     e.stopPropagation(); // Mencegah event bubbling
@@ -80,17 +94,41 @@ const SortableDraft = ({ draft, index, globalIndex, handleEditDraft, handleDelet
               <span>Crop image</span>
             </div>
           </div>
+          {(() => {
+            const { size, isOversize } = getFileSize(draft.message);
+            return (
+              <div className={`absolute bottom-2 left-2 ${isOversize ? 'bg-red-500/90' : 'bg-[#374151]/80'} text-[#E5E7EB] text-xs px-2 py-1 rounded-full flex items-center space-x-1`}>
+                <span>{size}</span>
+                {isOversize && (
+                  <span className="text-white ml-1" title="File terlalu besar, maksimal 8MB">⚠️</span>
+                )}
+              </div>
+            );
+          })()}
         </div>
       ) : draft.type === 'audio' ? (
-        <div className="relative">
+        <div className="relative flex flex-col">
           <div className="absolute top-2 right-2 bg-[#374151]/80 rounded-full p-1.5 shadow-sm">
             <Mic size={14} className="text-[#6366F1]" />
           </div>
-          <audio
-            controls
-            src={draft.message}
-            className="w-full mt-2"
-          />
+          <div className="mt-8 mb-8">
+            <audio
+              controls
+              src={draft.message}
+              className="w-full"
+            />
+          </div>
+          {(() => {
+            const { size, isOversize } = getFileSize(draft.message);
+            return (
+              <div className={`absolute bottom-0 left-2 ${isOversize ? 'bg-red-500/90' : 'bg-[#374151]/80'} text-[#E5E7EB] text-xs px-2 py-1 rounded-full flex items-center space-x-1`}>
+                <span>{size}</span>
+                {isOversize && (
+                  <span className="text-white ml-1" title="File terlalu besar, maksimal 8MB">⚠️</span>
+                )}
+              </div>
+            );
+          })()}
         </div>
       ) : (
         <div className="relative">
@@ -958,16 +996,43 @@ function App() {
     const width = canvas.width;
     const height = canvas.height;
     
-    // 1. Deblur dengan teknik unsharp mask (dikurangi intensitasnya)
-    const unsharpMask = (ctx, width, height, amount = 0.8, radius = 1) => {
+    // Fungsi untuk menghitung rata-rata kontras lokal
+    const calculateLocalContrast = (data, width, height, x, y) => {
+      let sum = 0;
+      let count = 0;
+      const radius = 1;
+      
+      for (let ky = -radius; ky <= radius; ky++) {
+        for (let kx = -radius; kx <= radius; kx++) {
+          const nx = x + kx;
+          const ny = y + ky;
+          
+          if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+            const offset = (ny * width + nx) * 4;
+            const brightness = (data[offset] + data[offset + 1] + data[offset + 2]) / 3;
+            sum += brightness;
+            count++;
+          }
+        }
+      }
+      
+      const average = sum / count;
+      const currentPixel = (y * width + x) * 4;
+      const currentBrightness = (data[currentPixel] + data[currentPixel + 1] + data[currentPixel + 2]) / 3;
+      
+      return Math.abs(currentBrightness - average);
+    };
+
+    // 1. Unsharp mask adaptif
+    const adaptiveUnsharpMask = (ctx, width, height) => {
       const imageData = ctx.getImageData(0, 0, width, height);
       const data = imageData.data;
       const tempData = new Uint8ClampedArray(data);
       
-      // Buat kernel Gaussian
+      // Buat kernel Gaussian yang lebih halus
+      const radius = 1;
       const kernel = [];
-      const kernelSize = radius * 2 + 1;
-      const sigma = radius / 3;
+      const sigma = radius / 2; // Dikurangi dari radius/3
       let sum = 0;
       
       for (let y = -radius; y <= radius; y++) {
@@ -983,10 +1048,16 @@ function App() {
         kernel[i] /= sum;
       }
       
-      // Aplikasikan unsharp mask dengan intensitas yang lebih rendah
+      // Aplikasikan unsharp mask dengan intensitas adaptif
       for (let y = radius; y < height - radius; y++) {
         for (let x = radius; x < width - radius; x++) {
           const pixelIndex = (y * width + x) * 4;
+          
+          // Hitung kontras lokal
+          const localContrast = calculateLocalContrast(tempData, width, height, x, y);
+          
+          // Sesuaikan intensitas sharpening berdasarkan kontras lokal
+          const adaptiveAmount = Math.min(0.5, localContrast / 50); // Maksimal 0.5, skala berdasarkan kontras
           
           for (let c = 0; c < 3; c++) {
             let blurred = 0;
@@ -1000,7 +1071,7 @@ function App() {
             }
             
             const original = tempData[pixelIndex + c];
-            const sharpened = original + amount * (original - blurred);
+            const sharpened = original + adaptiveAmount * (original - blurred);
             data[pixelIndex + c] = Math.max(0, Math.min(255, sharpened));
           }
         }
@@ -1009,7 +1080,7 @@ function App() {
       ctx.putImageData(imageData, 0, 0);
     };
 
-    // 2. Meningkatkan kontras lokal (dikurangi intensitasnya)
+    // 2. Kontras lokal yang lebih halus
     const enhanceLocalContrast = (ctx, width, height) => {
       const imageData = ctx.getImageData(0, 0, width, height);
       const data = imageData.data;
@@ -1018,10 +1089,10 @@ function App() {
         for (let x = 0; x < width; x++) {
           const pixelIndex = (y * width + x) * 4;
           
-          // Hitung rata-rata nilai piksel di sekitar
+          // Hitung rata-rata nilai piksel di sekitar dengan radius yang lebih kecil
           let sum = 0;
           let count = 0;
-          const radius = 2;
+          const radius = 1; // Dikurangi dari 2
           
           for (let ky = -radius; ky <= radius; ky++) {
             for (let kx = -radius; kx <= radius; kx++) {
@@ -1042,7 +1113,7 @@ function App() {
           for (let c = 0; c < 3; c++) {
             const value = data[pixelIndex + c];
             const diff = value - average;
-            const enhanced = average + diff * 1.1; // Dikurangi dari 1.2 ke 1.1
+            const enhanced = average + diff * 1.05; // Dikurangi dari 1.1 ke 1.05
             data[pixelIndex + c] = Math.max(0, Math.min(255, enhanced));
           }
         }
@@ -1051,21 +1122,28 @@ function App() {
       ctx.putImageData(imageData, 0, 0);
     };
 
-    // 3. Meningkatkan ketajaman tepi (dikurangi intensitasnya)
+    // 3. Edge enhancement yang lebih halus
     const enhanceEdges = (ctx, width, height) => {
       const imageData = ctx.getImageData(0, 0, width, height);
       const data = imageData.data;
       const tempData = new Uint8ClampedArray(data);
       
+      // Kernel yang lebih halus
       const edgeKernel = [
-        -1, -1, -1,
-        -1,  8, -1,
-        -1, -1, -1
+        -0.1, -0.1, -0.1,
+        -0.1,  1.8, -0.1,
+        -0.1, -0.1, -0.1
       ];
       
       for (let y = 1; y < height - 1; y++) {
         for (let x = 1; x < width - 1; x++) {
           const pixelIndex = (y * width + x) * 4;
+          
+          // Hitung kontras lokal
+          const localContrast = calculateLocalContrast(tempData, width, height, x, y);
+          
+          // Sesuaikan intensitas edge enhancement berdasarkan kontras lokal
+          const adaptiveAmount = Math.min(0.05, localContrast / 100); // Maksimal 0.05
           
           for (let c = 0; c < 3; c++) {
             let edgeValue = 0;
@@ -1079,7 +1157,7 @@ function App() {
             }
             
             const original = tempData[pixelIndex + c];
-            const enhanced = original + edgeValue * 0.1; // Dikurangi dari 0.2 ke 0.1
+            const enhanced = original + edgeValue * adaptiveAmount;
             data[pixelIndex + c] = Math.max(0, Math.min(255, enhanced));
           }
         }
@@ -1088,8 +1166,8 @@ function App() {
       ctx.putImageData(imageData, 0, 0);
     };
 
-    // Terapkan semua peningkatan kualitas dengan intensitas yang lebih rendah
-    unsharpMask(ctx, width, height, 0.8, 1); // Dikurangi dari 1.5 ke 0.8
+    // Terapkan semua peningkatan kualitas dengan urutan yang dioptimalkan
+    adaptiveUnsharpMask(ctx, width, height);
     enhanceLocalContrast(ctx, width, height);
     enhanceEdges(ctx, width, height);
   };
@@ -1201,6 +1279,23 @@ function App() {
       const validDrafts = newDrafts.filter(draft => draft !== null);
       
       setDrafts((prevDrafts) => [...prevDrafts, ...validDrafts]);
+    }
+    
+    setIsUpscaleModalOpen(false);
+    setPendingImages([]);
+    setUpscaleFactor(2);
+  };
+
+  const handleSkip = async () => {
+    if (pendingImages.length > 0) {
+      const newDrafts = pendingImages.map(imageData => ({
+        id: md5(`${imageData.originalFile.name}${Date.now()}`),
+        webhookName: selectedWebhookName,
+        message: imageData.dataURL,
+        type: 'image',
+      }));
+      
+      setDrafts((prevDrafts) => [...prevDrafts, ...newDrafts]);
     }
     
     setIsUpscaleModalOpen(false);
@@ -1389,6 +1484,12 @@ function App() {
                   Cancel
                 </button>
                 <button
+                  onClick={handleSkip}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 border border-gray-300 rounded-lg"
+                >
+                  Skip
+                </button>
+                <button
                   onClick={handleUpscaleConfirm}
                   className="bg-[#6366F1] hover:bg-[#4F46E5] text-white px-4 py-2 rounded-lg transition-all duration-300"
                 >
@@ -1545,12 +1646,155 @@ function App() {
               <div className="flex flex-col items-center">
                 <h2 className="text-xl font-bold text-gray-200 mb-4">Crop Image</h2>
                 
+                {/* Tambahkan pilihan rasio aspek */}
+                <div className="mb-4 flex space-x-2">
+                  <button
+                    onClick={() => {
+                      const imageElement = imgRef.current;
+                      setCrop({
+                        unit: '%',
+                        x: 0,
+                        y: 0,
+                        width: 100,
+                        height: 100,
+                        aspect: undefined
+                      });
+                    }}
+                    className={`px-4 py-2 rounded-lg transition-colors duration-300 ${
+                      !crop.aspect ? 'bg-[#6366F1] text-white' : 'bg-[#374151] text-gray-300 hover:bg-[#4B5563]'
+                    }`}
+                  >
+                    Free
+                  </button>
+                  <button
+                    onClick={() => {
+                      const imageElement = imgRef.current;
+                      if (imageElement) {
+                        const { width, height } = imageElement;
+                        const aspectRatio = 1;
+                        let newWidth = 90;
+                        let newHeight = 90;
+                        
+                        if (width > height) {
+                          newWidth = (height / width) * 90;
+                        } else {
+                          newHeight = (width / height) * 90;
+                        }
+                        
+                        setCrop({
+                          unit: '%',
+                          x: (100 - newWidth) / 2,
+                          y: (100 - newHeight) / 2,
+                          width: newWidth,
+                          height: newHeight,
+                          aspect: aspectRatio
+                        });
+                      }
+                    }}
+                    className={`px-4 py-2 rounded-lg transition-colors duration-300 ${
+                      crop.aspect === 1 ? 'bg-[#6366F1] text-white' : 'bg-[#374151] text-gray-300 hover:bg-[#4B5563]'
+                    }`}
+                  >
+                    1:1
+                  </button>
+                  <button
+                    onClick={() => {
+                      const imageElement = imgRef.current;
+                      if (imageElement) {
+                        const { width, height } = imageElement;
+                        const aspectRatio = 16/9;
+                        let newWidth = 90;
+                        let newHeight = newWidth / aspectRatio;
+                        
+                        if (newHeight > 90) {
+                          newHeight = 90;
+                          newWidth = newHeight * aspectRatio;
+                        }
+                        
+                        setCrop({
+                          unit: '%',
+                          x: (100 - newWidth) / 2,
+                          y: (100 - newHeight) / 2,
+                          width: newWidth,
+                          height: newHeight,
+                          aspect: aspectRatio
+                        });
+                      }
+                    }}
+                    className={`px-4 py-2 rounded-lg transition-colors duration-300 ${
+                      crop.aspect === 16/9 ? 'bg-[#6366F1] text-white' : 'bg-[#374151] text-gray-300 hover:bg-[#4B5563]'
+                    }`}
+                  >
+                    16:9
+                  </button>
+                  <button
+                    onClick={() => {
+                      const imageElement = imgRef.current;
+                      if (imageElement) {
+                        const { width, height } = imageElement;
+                        const aspectRatio = 3/4;
+                        let newWidth = 90;
+                        let newHeight = newWidth / aspectRatio;
+                        
+                        if (newHeight > 90) {
+                          newHeight = 90;
+                          newWidth = newHeight * aspectRatio;
+                        }
+                        
+                        setCrop({
+                          unit: '%',
+                          x: (100 - newWidth) / 2,
+                          y: (100 - newHeight) / 2,
+                          width: newWidth,
+                          height: newHeight,
+                          aspect: aspectRatio
+                        });
+                      }
+                    }}
+                    className={`px-4 py-2 rounded-lg transition-colors duration-300 ${
+                      crop.aspect === 3/4 ? 'bg-[#6366F1] text-white' : 'bg-[#374151] text-gray-300 hover:bg-[#4B5563]'
+                    }`}
+                  >
+                    3:4
+                  </button>
+                  <button
+                    onClick={() => {
+                      const imageElement = imgRef.current;
+                      if (imageElement) {
+                        const { width, height } = imageElement;
+                        const aspectRatio = 4/3;
+                        let newWidth = 90;
+                        let newHeight = newWidth / aspectRatio;
+                        
+                        if (newHeight > 90) {
+                          newHeight = 90;
+                          newWidth = newHeight * aspectRatio;
+                        }
+                        
+                        setCrop({
+                          unit: '%',
+                          x: (100 - newWidth) / 2,
+                          y: (100 - newHeight) / 2,
+                          width: newWidth,
+                          height: newHeight,
+                          aspect: aspectRatio
+                        });
+                      }
+                    }}
+                    className={`px-4 py-2 rounded-lg transition-colors duration-300 ${
+                      crop.aspect === 4/3 ? 'bg-[#6366F1] text-white' : 'bg-[#374151] text-gray-300 hover:bg-[#4B5563]'
+                    }`}
+                  >
+                    4:3
+                  </button>
+                </div>
+                
                 <div className="relative max-h-[70vh] w-full flex justify-center">
                   <ReactCrop
                     crop={crop}
                     onChange={(_, percentCrop) => setCrop(percentCrop)}
                     onComplete={(c) => setCompletedCrop(c)}
-                    aspect={undefined}
+                    aspect={crop.aspect}
                     className="max-h-[70vh]"
                   >
                     <img
@@ -1574,7 +1818,7 @@ function App() {
                     onClick={closePreviewModal}
                     className="px-6 py-2 text-gray-300 hover:text-gray-100 border border-gray-600 hover:border-gray-500 rounded-lg transition-colors duration-300"
                   >
-                    Cancel
+                    Batal
                   </button>
                   <button
                     onClick={handleSaveCrop}
@@ -1586,7 +1830,7 @@ function App() {
                     }`}
                   >
                     <CropIcon size={20} />
-                    <span>Save Crop</span>
+                    <span>Simpan</span>
                   </button>
                 </div>
               </div>
